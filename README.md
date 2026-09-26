@@ -9,6 +9,167 @@ with byte-exact recall of everything it compacts.
 - **Source code:** [github.com/mrbeandev/dsh-hypercompact](https://github.com/mrbeandev/dsh-hypercompact)
 - **npm package:** [npmjs.com/package/dsh-hypercompact](https://www.npmjs.com/package/dsh-hypercompact)
 
+Long DSH sessions eventually fail because every request re-uploads the whole
+conversation. dsh-hypercompact keeps that request small: when it grows past a
+byte limit, it compacts old history locally in milliseconds, with no extra model
+call. Everything you typed stays word for word, and the agent can restore any
+compacted tool output exactly with the `recall` tool.
+
+**Contents:** [Installation](#installation) ·
+[Check that it is working](#check-that-it-is-working) ·
+[Which sessions use it?](#which-sessions-use-it) · [Uninstall](#uninstall) ·
+[Why this plugin exists](#why-this-plugin-exists) · [Configuration](#configuration) ·
+[How it works](#how-it-works) · [Recall tools](#recall-tools) ·
+[Requirements](#requirements) · [Known limits](#known-limits)
+
+## Installation
+
+Installing takes **three steps**: add the package, create a preset that uses
+it, and start a **new** session on that preset. The package on its own does
+nothing. DSH picks a compaction engine per *preset*, so the plugin runs only in
+sessions that use a preset containing it.
+
+### Step 1: add the package to your DSH profile
+
+```sh
+dsh plugin --profile web add dsh-hypercompact
+```
+
+<details>
+<summary>Install from GitHub or a local checkout instead</summary>
+
+```sh
+# GitHub
+dsh plugin --profile web add github:mrbeandev/dsh-hypercompact
+
+# Local checkout (keep the folder in place: the profile links to it)
+git clone https://github.com/mrbeandev/dsh-hypercompact.git
+dsh plugin --profile web add "link:$PWD/dsh-hypercompact"
+```
+
+</details>
+
+### Step 2: create the "Hypercompact" preset
+
+```sh
+node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs
+```
+
+This copies DSH's built-in `standard` preset and changes one row: the
+compaction engine. Your existing presets are not touched. The output says what
+it wrote:
+
+```text
+created preset "hypercompact" at ~/.dsh/.agent-presets/hypercompact
+```
+
+- **Windows:** `node %USERPROFILE%\.dsh\profiles\web\node_modules\dsh-hypercompact\scripts\create-preset.mjs`
+- **Custom `DSH_HOME`:** use that directory instead of `~/.dsh`.
+- **Local checkout:** `node /path/to/dsh-hypercompact/scripts/create-preset.mjs`
+
+### Step 3: restart DSH and start a new session on the preset
+
+1. Stop DSH web and start it again (`dsh web`).
+2. Click **New session**.
+3. **Before you send the first message**, open the preset picker and choose
+   **Hypercompact (standard)**.
+
+To use it for **every** new session instead, make it the default. Add this to
+`~/.dsh/settings.yaml` and restart DSH:
+
+```yaml
+agent-presets:
+  default: hypercompact
+```
+
+### Check that it is working
+
+In the session, type:
+
+```text
+/hypercompact
+```
+
+- **It prints a status report** (request size, trigger values, last
+  compaction): the session is using dsh-hypercompact.
+- **The command is unknown:** the session is on another preset. Start a new
+  session and pick **Hypercompact (standard)** before the first message.
+
+Compaction then happens on its own when the request grows past 5 MB. You can
+also run `/compact` at any time.
+
+### Which sessions use it?
+
+| Session | Uses dsh-hypercompact? |
+|---|---|
+| New session with **Hypercompact (standard)** picked before the first message | **Yes** |
+| Any new session, after you set `agent-presets.default: hypercompact` | **Yes** |
+| New session on another preset (`standard`, `ptc`, …) | No |
+| **Existing session** (already has messages) | **No.** DSH fixes a session's preset after its first message, so it can't switch compaction engines mid-conversation. |
+
+**Moving an existing conversation over:** start a new Hypercompact session and
+mention the old one with `@` (pick it from the list). DSH inserts a size-limited
+snapshot of that session so the agent can continue from it.
+
+### DSH version notes
+
+`create-preset.mjs` detects your DSH version:
+
+| DSH | Where the preset goes |
+|---|---|
+| 0.1.5 (`npm i -g @deepseek-ai/dsh`, the `latest` tag) | the folder `~/.dsh/.agent-presets/hypercompact/`, usable from every profile |
+| 0.1.7 (`next` tag) | a marked block in `~/.dsh/profiles/<profile>/cordis.patch.yml`; pass `--profile <name>` for a profile other than `web` |
+
+`agent-presets.default` in `settings.yaml` is a 0.1.5 setting. On 0.1.7, pick
+the preset in the UI.
+
+Script options: `--from ptc` (copy another built-in preset), `--id my-preset`,
+`--profile tui`, `--force` (overwrite), `--print` (preview, write nothing),
+`--remove` (delete the preset it created).
+
+### Uninstall
+
+Remove the preset **first**. A preset that still names the package cannot load
+once the package is gone.
+
+```sh
+node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs --remove
+dsh plugin --profile web remove dsh-hypercompact
+```
+
+If you set `agent-presets.default: hypercompact`, remove that line too. Sessions
+that were already compacted stay readable: their checkpoints are ordinary
+compaction checkpoints in the session log.
+
+### Add it to a preset by hand
+
+To put the plugin in your own preset instead of using the script, replace the
+`compaction-basic` row inside the preset's `compaction` group. Keep the
+`isolate` block: `/compact` and the engine must share that group.
+
+```yaml
+- id: compaction
+  name: cordis:group
+  group: true
+  isolate:
+    compaction: true
+    toolResultPruner: true
+  config:
+    - id: hypercompact            # was: compaction-basic
+      name: dsh-hypercompact
+      config:
+        maxRequestBytes: 5000000
+        targetRequestBytes: 1500000
+    - id: command-compact
+      name: '@deepseek-ai/dsh-command-compact'
+    - id: tool-result-pruner
+      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+```
+
+If you ever add a `dsh-hypercompact` row to a profile's `cordis.patch.yml` by
+hand, delete it before uninstalling: a row naming a missing package stops the
+profile from booting.
+
 ## Why this plugin exists
 
 Every model call in a long agent session re-uploads the whole conversation. On a
@@ -74,102 +235,6 @@ Degradation 0 means only reasoning was dropped; 1 means tool-result excerpts
 were dropped (call lines and pointers stay). No entry was elided in any
 session. Every compacted request had 0 orphaned tool results and 0 unanswered
 tool calls, and `recall` returned a sampled tool result byte-identical to the log.
-
-## Installation
-
-dsh-hypercompact is an **agent-preset** plugin. Installing the package changes
-nothing by itself: its `cordis.patch.yml` is empty, so it cannot affect how a
-profile boots. It takes effect in a preset that mounts it in place of
-`compaction-basic`. The bundled `create-preset.mjs` script creates that preset for
-you; it copies a shipped preset and swaps only the compaction row.
-
-### npm (recommended)
-
-```sh
-dsh plugin --profile web add dsh-hypercompact
-node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs
-```
-
-On Windows the second command is
-`node %USERPROFILE%\.dsh\profiles\web\node_modules\dsh-hypercompact\scripts\create-preset.mjs`.
-If you set `DSH_HOME`, use that directory instead of `~/.dsh`.
-
-Restart the DSH web profile, then pick **Hypercompact (standard)** in the preset
-picker for new sessions. The script adapts to your DSH version:
-
-| DSH | What `create-preset.mjs` writes |
-|---|---|
-| 0.1.5 (`latest`) | a preset directory `~/.dsh/.agent-presets/hypercompact/`, visible to every profile |
-| 0.1.7 (`next`) | one `@deepseek-ai/dsh-agent-preset` row in `~/.dsh/profiles/<profile>/cordis.patch.yml`, between marker comments |
-
-Options: `--from ptc` (copy another shipped preset), `--id my-preset`,
-`--profile tui` (0.1.7 only; default `web`), `--force` (overwrite), `--print`
-(write nothing, show the result), `--remove` (delete the preset it created).
-
-On 0.1.5 you can also make it the default for new sessions:
-
-```yaml
-# ~/.dsh/settings.yaml
-agent-presets:
-  default: hypercompact
-```
-
-### GitHub
-
-```sh
-dsh plugin --profile web add github:mrbeandev/dsh-hypercompact
-node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs
-```
-
-### Local checkout
-
-```sh
-git clone https://github.com/mrbeandev/dsh-hypercompact.git
-dsh plugin --profile web add "link:$PWD/dsh-hypercompact"
-node dsh-hypercompact/scripts/create-preset.mjs
-```
-
-Keep the checkout in place: the profile links to it.
-
-### Manual preset edit
-
-To add the plugin to a preset yourself, replace the `compaction-basic` row inside
-its `compaction` group and keep the `isolate` realm. `compaction` must be
-per-preset, and `/compact` must sit in the same group to reach it.
-
-```yaml
-- id: compaction
-  name: cordis:group
-  group: true
-  isolate:
-    compaction: true
-    toolResultPruner: true
-  config:
-    - id: hypercompact            # was: compaction-basic
-      name: dsh-hypercompact
-      config:
-        maxRequestBytes: 5000000
-        targetRequestBytes: 1500000
-    - id: command-compact
-      name: '@deepseek-ai/dsh-command-compact'
-    - id: tool-result-pruner
-      name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
-```
-
-### Uninstall
-
-Remove the preset **first**. A preset that still names the package fails to
-mount once the package is gone.
-
-```sh
-node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs --remove
-dsh plugin --profile web remove dsh-hypercompact
-```
-
-If you set `agent-presets.default: hypercompact`, change it back. If you added the
-plugin to a preset or profile patch by hand, delete that row too: a row naming an
-uninstalled package stops the profile from booting. Sessions already compacted
-stay valid; their checkpoints are ordinary compaction checkpoints in the log.
 
 ## Configuration
 
@@ -399,7 +464,7 @@ message content. They are what you need to answer "why did it forget X".
   `allowUntestedHarness: true`.
 - Node.js `^22.19.0` or `>=24.0.0` (whatever your DSH runs on).
 - Any profile with an agent-preset roster (the web profile). The headless
-  profile has no preset roster; see [Manual preset edit](#manual-preset-edit).
+  profile has no preset roster; see [Add it to a preset by hand](#add-it-to-a-preset-by-hand).
 
 The plugin has no runtime dependencies. At mount time it loads
 `@deepseek-ai/dsh-compaction`, `dsh-llm` and `dsh-tools` from the **running** DSH,
