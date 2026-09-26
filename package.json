@@ -1,0 +1,65 @@
+{
+  "name": "dsh-hypercompact",
+  "version": "0.1.0",
+  "description": "Deterministic, zero-LLM, byte-budget context compaction for DeepSeek Harness, with byte-exact recall of compacted history.",
+  "type": "module",
+  "main": "./index.mjs",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "dsh-plugins",
+    "plugin",
+    "llm",
+    "compaction",
+    "context-compression",
+    "context-window",
+    "byte-budget"
+  ],
+  "homepage": "https://github.com/mrbeandev/dsh-hypercompact#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mrbeandev/dsh-hypercompact.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mrbeandev/dsh-hypercompact/issues"
+  },
+  "author": "mrbeandev and contributors",
+  "license": "MIT",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "test": "node scripts/run-tests.mjs",
+    "verify": "npm test && node scripts/check-release.mjs",
+    "measure": "node scripts/measure-session.mjs",
+    "create-preset": "node scripts/create-preset.mjs",
+    "pack:check": "npm pack --dry-run",
+    "prepublishOnly": "npm run verify"
+  },
+  "files": [
+    "index.mjs",
+    "lib/*.mjs",
+    "scripts/*.mjs",
+    "test/*.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "RELEASE.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": ">=0.1.5-rc.2 <0.2.0"
+    }
+  }
+}

@@ -1,0 +1,8 @@
+# dsh-hypercompact adds NO rows to the host composition.
+#
+# It is an agent-preset plugin: mount it inside a copied preset's
+# `compaction` isolate group in place of `@deepseek-ai/dsh-compaction-basic`.
+# See README.md → "Install". Keeping this patch empty means installing the
+# package can never change or break the host boot, and uninstalling it
+# leaves no row behind in the profile's cordis.patch.yml.
+[]

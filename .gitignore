@@ -1,0 +1,12 @@
+node_modules/
+.cache/
+*.tgz
+npm-debug.log*
+.DS_Store
+.env
+.env.*
+# Private session data used as local test fixtures. Never commit these.
+fixtures/
+.private/
+*.zstd
+*.jsonl
