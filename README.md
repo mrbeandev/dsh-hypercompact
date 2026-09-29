@@ -5,6 +5,7 @@ with byte-exact recall of everything it compacts.
 
 [![npm version](https://img.shields.io/npm/v/dsh-hypercompact.svg)](https://www.npmjs.com/package/dsh-hypercompact)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![DSH](https://img.shields.io/badge/DSH-0.1.5--rc.2%20%E2%86%92%20%3C0.3.0-informational.svg)](#supported-dsh-versions)
 
 - **Source code:** [github.com/mrbeandev/dsh-hypercompact](https://github.com/mrbeandev/dsh-hypercompact)
 - **npm package:** [npmjs.com/package/dsh-hypercompact](https://www.npmjs.com/package/dsh-hypercompact)
@@ -15,12 +16,39 @@ byte limit, it compacts old history locally in milliseconds, with no extra model
 call. Everything you typed stays word for word, and the agent can restore any
 compacted tool output exactly with the `recall` tool.
 
-**Contents:** [Installation](#installation) ·
+**Contents:** [Supported DSH versions](#supported-dsh-versions) · [Installation](#installation) ·
 [Check that it is working](#check-that-it-is-working) ·
 [Which sessions use it?](#which-sessions-use-it) · [Uninstall](#uninstall) ·
 [Why this plugin exists](#why-this-plugin-exists) · [Configuration](#configuration) ·
 [How it works](#how-it-works) · [Recall tools](#recall-tools) ·
 [Requirements](#requirements) · [Known limits](#known-limits)
+
+## Supported DSH versions
+
+**Supported range: DSH `0.1.5-rc.2` up to (not including) `0.3.0`**, with
+dsh-hypercompact `0.2.0` or later. Check yours with `dsh --version`.
+
+| DSH version | npm tag (at the time of this release) | Status | Preset created by `create-preset.mjs` |
+|---|---|---|---|
+| `0.2.0-rc.1` | `next` | ✅ Tested | preset bundle, installed with `dsh plugin add` |
+| `0.1.7-rc.2` | `latest` | ✅ Tested | preset bundle, installed with `dsh plugin add` |
+| `0.1.5-rc.3` | — | ✅ Tested | folder `~/.dsh/.agent-presets/hypercompact/` |
+| `0.1.5-rc.2` | — | ✅ Tested | folder `~/.dsh/.agent-presets/hypercompact/` |
+| other `0.1.5-rc.2` … `0.2.x` releases | — | ⚠️ Works, untested: loads with a warning after an API check | detected automatically |
+| `0.1.5-rc.1` and older | — | ❌ Not supported: no compaction API | — |
+| `0.3.0` and newer | — | ❌ Refused until tested (override: `allowUntestedHarness: true`) | — |
+
+**Which dsh-hypercompact version do I need?**
+
+| dsh-hypercompact | Works with DSH |
+|---|---|
+| `0.2.0` and later | `0.1.5-rc.2` … `<0.3.0` (0.1.5, 0.1.7, 0.2) |
+| `0.1.0` | `0.1.5-rc.2` … `<0.2.0` (0.1.5, 0.1.7). **Refuses to load on DSH 0.2.** |
+
+"Refused" means the plugin logs a clear error at startup and does not load; it
+never half-loads or touches your sessions. The engine works the same on every
+supported version; only the way a preset is installed differs (see Step 2
+below). After upgrading DSH, see [Upgrading DSH](#upgrading-dsh).
 
 ## Installation
 
@@ -487,11 +515,9 @@ message content. They are what you need to answer "why did it forget X".
 
 ## Requirements
 
-- DeepSeek Harness `0.1.5-rc.2` up to (not including) `0.3.0`. Tested on
-  `0.1.5-rc.2`, `0.1.5-rc.3`, `0.1.7-rc.2` and `0.2.0-rc.1`, covering both
-  tool-result message formats and both preset models. Other releases in the
-  range load with a warning after an API contract check; releases outside it
-  are refused unless `allowUntestedHarness: true`.
+- DeepSeek Harness `0.1.5-rc.2` up to (not including) `0.3.0`. See
+  [Supported DSH versions](#supported-dsh-versions) for the tested versions and
+  what happens outside the range.
 - Node.js `^22.19.0` or `>=24.0.0` (whatever your DSH runs on).
 - Any profile with an agent-preset roster (the web profile). The headless
   profile has no preset roster; see [Add it to a preset by hand](#add-it-to-a-preset-by-hand).
