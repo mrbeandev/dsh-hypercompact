@@ -2,23 +2,29 @@
 /**
  * Create (or remove) an agent preset that uses dsh-hypercompact.
  *
- *   node scripts/create-preset.mjs [--from standard] [--id hypercompact] [--profile web] [--force] [--print] [--remove]
+ *   node scripts/create-preset.mjs [--from standard] [--id hypercompact] [--profile web]
+ *                                  [--force] [--print] [--no-install] [--remove]
  *
- * The preset is a copy of a SHIPPED preset (default `standard`) in which only
- * the `compaction-basic` row is replaced by `dsh-hypercompact`. Shipped files
- * are only read, never written. dsh has two preset models:
+ * The preset is a copy of a SHIPPED preset (default `standard`) from the
+ * installed dsh, with only the `compaction-basic` row replaced by
+ * `dsh-hypercompact`. Shipped files are only read, never written. The script
+ * detects which preset model the installed dsh uses:
  *
  * - dsh 0.1.5 (directory presets): writes `$DSH_HOME/.agent-presets/<id>/`
- *   (agent.cordis.yml + preset.yml). Visible to every profile.
- * - dsh 0.1.7+ (preset declarations): appends one `@deepseek-ai/dsh-agent-preset`
- *   row to `$DSH_HOME/profiles/<profile>/cordis.patch.yml`, between marker
- *   comments, so `--remove` can delete exactly that block.
+ *   (agent.cordis.yml + preset.yml), visible to every profile.
+ * - dsh 0.1.7 and 0.2 (preset declarations): writes a small local bundle to
+ *   `$DSH_HOME/hypercompact/preset-<id>/` whose cordis.patch.yml declares an
+ *   `@deepseek-ai/dsh-agent-preset` row, then installs it into the profile
+ *   with `dsh plugin --profile <profile> add` (the documented way to add a
+ *   preset). `--no-install` only writes the bundle and prints the command.
  *
- * `--print` writes nothing and prints what would be written. `--remove`
- * deletes the preset created by this script (run it BEFORE uninstalling the
- * package: a preset naming a missing package cannot mount).
+ * `--print` writes nothing and prints what would be written. `--remove` deletes
+ * what this script created (run it BEFORE uninstalling dsh-hypercompact: a
+ * preset naming a missing package cannot mount). After upgrading dsh, run the
+ * script again with `--force` so the copy follows the new shipped preset.
  */
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, cpSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, cpSync, rmSync, rmdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -35,6 +41,7 @@ const profile = option('profile', 'web');
 const force = args.includes('--force');
 const printOnly = args.includes('--print');
 const remove = args.includes('--remove');
+const noInstall = args.includes('--no-install');
 
 function fail(message, code = 1) {
   console.error(`create-preset: ${message}`);
@@ -48,6 +55,7 @@ const home = resolve(process.env.DSH_HOME ?? join(homedir(), '.dsh'));
 const entry = findDsh();
 if (entry === undefined) fail('cannot find the dsh CLI; install @deepseek-ai/dsh or set DSH_ENTRY to its lib/bin.js');
 const require = createRequire(entry);
+const MARKER = 'create-preset.mjs';
 
 function packageDir(name) {
   try {
@@ -55,6 +63,13 @@ function packageDir(name) {
   } catch {
     return undefined;
   }
+}
+
+/** Run the installed dsh CLI (the one this script resolved, not whatever `dsh` is first on PATH). */
+function dsh(commandArgs) {
+  console.log(`> dsh ${commandArgs.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg)).join(' ')}`);
+  const result = spawnSync(process.execPath, [entry, ...commandArgs], { stdio: 'inherit', env: process.env });
+  return result.status === 0;
 }
 
 /** The compaction row that replaces compaction-basic, at a given indentation. */
@@ -80,6 +95,20 @@ function swapCompactionRow(text, where) {
   return text.replace(basicRow, (_match, indent) => `${hypercompactRow(indent)}\n`);
 }
 
+/** Delete a directory tree, then its parent if that is now empty. */
+function removeTree(dir) {
+  rmSync(dir, { recursive: true, force: true });
+  try {
+    if (readdirSync(dirname(dir)).length === 0) rmdirSync(dirname(dir));
+  } catch {
+    /* parent missing or not empty: leave it */
+  }
+}
+
+/** A 0.1.5 preset directory this script created. */
+const legacyDir = join(home, '.agent-presets', id);
+const legacyExists = existsSync(join(legacyDir, 'agent.cordis.yml')) && readFileSync(join(legacyDir, 'agent.cordis.yml'), 'utf8').includes(MARKER);
+
 const presetsPackage = packageDir('@deepseek-ai/dsh-agent-presets');
 const webApp = packageDir('@deepseek-ai/dsh-web-app');
 const directoryModel = presetsPackage !== undefined && existsSync(join(presetsPackage, 'presets', from, 'agent.cordis.yml'));
@@ -89,22 +118,19 @@ if (!directoryModel && !declarationModel) fail(`shipped preset "${from}" not fou
 if (directoryModel) {
   // ── dsh 0.1.5: directory presets ────────────────────────────────────────
   const source = join(presetsPackage, 'presets', from);
-  const target = join(home, '.agent-presets', id);
   if (remove) {
-    if (!existsSync(target)) fail(`no preset at ${target}`);
-    if (!existsSync(join(target, 'agent.cordis.yml')) || !readFileSync(join(target, 'agent.cordis.yml'), 'utf8').includes('create-preset.mjs')) {
-      fail(`${target} was not created by this script; remove it by hand`);
-    }
+    if (!existsSync(legacyDir)) fail(`no preset at ${legacyDir}`);
+    if (!legacyExists) fail(`${legacyDir} was not created by this script; remove it by hand`);
     if (printOnly) {
-      console.log(`would delete ${target}`);
+      console.log(`would delete ${legacyDir}`);
       process.exit(0);
     }
-    rmSync(target, { recursive: true, force: true });
-    console.log(`removed preset "${id}" (${target})`);
+    removeTree(legacyDir);
+    console.log(`removed preset "${id}" (${legacyDir})`);
     process.exit(0);
   }
   const composition = `# Local copy of the shipped "${from}" preset with dsh-hypercompact as the
-# compaction engine. Generated by dsh-hypercompact/scripts/create-preset.mjs.
+# compaction engine. Generated by dsh-hypercompact/scripts/${MARKER}.
 # Only the compaction-basic row below was changed.
 
 ${swapCompactionRow(readFileSync(join(source, 'agent.cordis.yml'), 'utf8'), `${from}/agent.cordis.yml`)}`;
@@ -112,54 +138,55 @@ ${swapCompactionRow(readFileSync(join(source, 'agent.cordis.yml'), 'utf8'), `${f
     process.stdout.write(composition);
     process.exit(0);
   }
-  if (existsSync(target) && !force) fail(`${target} already exists; pass --force to overwrite it`);
-  mkdirSync(target, { recursive: true });
+  if (existsSync(legacyDir) && !force) fail(`${legacyDir} already exists; pass --force to overwrite it`);
+  mkdirSync(legacyDir, { recursive: true });
   // Carry any preset-local assets (skills, etc.) along with the composition.
   for (const item of readdirSync(source, { withFileTypes: true })) {
     if (item.name === 'agent.cordis.yml' || item.name === 'preset.yml') continue;
-    cpSync(join(source, item.name), join(target, item.name), { recursive: true });
+    cpSync(join(source, item.name), join(legacyDir, item.name), { recursive: true });
   }
-  writeFileSync(join(target, 'agent.cordis.yml'), composition);
-  writeFileSync(join(target, 'preset.yml'), `name: Hypercompact (${from})
+  writeFileSync(join(legacyDir, 'agent.cordis.yml'), composition);
+  writeFileSync(join(legacyDir, 'preset.yml'), `name: Hypercompact (${from})
 description: The shipped "${from}" coding agent with dsh-hypercompact — deterministic, zero-LLM, byte-budget compaction and recall of compacted history.
 `);
-  console.log(`created preset "${id}" at ${target}`);
-  console.log('restart dsh, then select it in the web UI preset picker (or set agent-presets.default in settings.yaml)');
+  console.log(`created preset "${id}" at ${legacyDir}`);
+  console.log('Next: restart dsh, start a NEW session, and pick "Hypercompact" in the preset picker before the first message.');
   process.exit(0);
 }
 
-// ── dsh 0.1.7+: preset declaration rows in the profile patch ──────────────
-const patchFile = join(home, 'profiles', profile, 'cordis.patch.yml');
-if (!existsSync(patchFile)) fail(`profile "${profile}" has no ${patchFile}; create the profile first (dsh --profile ${profile})`);
-const BEGIN = `# >>> dsh-hypercompact preset "${id}" (managed by dsh-hypercompact/scripts/create-preset.mjs; remove with --remove)`;
-const END = `# <<< dsh-hypercompact preset "${id}"`;
-const current = readFileSync(patchFile, 'utf8');
-const hasBlock = current.includes(BEGIN);
+// ── dsh 0.1.7 / 0.2: a local bundle declaring the preset ────────────────────
+const bundleDir = join(home, 'hypercompact', `preset-${id}`);
+const bundleName = id === 'hypercompact' ? 'dsh-hypercompact-preset' : `dsh-hypercompact-preset-${id}`;
+const profileDir = join(home, 'profiles', profile);
 
-/** Remove our marked block; an item-less remainder becomes `[]`. */
-function withoutBlock(text) {
-  const start = text.indexOf(BEGIN);
-  const end = text.indexOf(END, start);
-  if (start === -1 || end === -1) return text;
-  let rest = text.slice(0, start) + text.slice(end + END.length).replace(/^\n/, '');
-  const items = rest.split('\n').filter((line) => line.trim().length > 0 && !line.trimStart().startsWith('#'));
-  if (items.length === 0) rest = `${rest.replace(/\s*$/, '')}\n[]\n`;
-  return rest;
+function installedInProfile() {
+  try {
+    return JSON.parse(readFileSync(join(profileDir, 'package.json'), 'utf8')).dependencies?.[bundleName] !== undefined;
+  } catch {
+    return false;
+  }
 }
 
 if (remove) {
-  if (!hasBlock) fail(`no preset "${id}" block in ${patchFile}`);
-  const next = withoutBlock(current);
+  const installed = installedInProfile();
+  if (!installed && !existsSync(bundleDir) && !legacyExists) fail(`nothing to remove: no ${bundleName} in profile "${profile}", no ${bundleDir}`);
   if (printOnly) {
-    process.stdout.write(next);
+    if (installed) console.log(`would run: dsh plugin --profile ${profile} remove ${bundleName}`);
+    if (existsSync(bundleDir)) console.log(`would delete ${bundleDir}`);
+    if (legacyExists) console.log(`would delete the old 0.1.5 preset folder ${legacyDir}`);
     process.exit(0);
   }
-  writeFileSync(patchFile, next);
-  console.log(`removed preset "${id}" from ${patchFile}`);
+  if (installed && !dsh(['plugin', '--profile', profile, 'remove', bundleName])) fail(`could not remove ${bundleName}; run: dsh plugin --profile ${profile} remove ${bundleName}`);
+  if (existsSync(bundleDir)) removeTree(bundleDir);
+  if (legacyExists) removeTree(legacyDir);
+  console.log(`removed preset "${id}" (bundle ${bundleName}) from profile "${profile}"`);
+  console.log('Restart dsh to apply.');
   process.exit(0);
 }
 
-if (hasBlock && !force) fail(`${patchFile} already declares preset "${id}"; pass --force to replace it`);
+if (!existsSync(join(profileDir, 'package.json'))) fail(`profile "${profile}" does not exist at ${profileDir}; start it once with: dsh --profile ${profile}`);
+if (existsSync(bundleDir) && !force) fail(`${bundleDir} already exists; pass --force to regenerate it (for example after upgrading dsh)`);
+
 const shipped = readFileSync(join(webApp, 'presets', `${from}.patch.yml`), 'utf8');
 let declaration = shipped.split('\n').filter((line) => !line.startsWith('#')).join('\n').trim();
 if (!/^- insert:\n {4}- id: preset-[a-z0-9-]+\n/.test(declaration)) fail(`unexpected layout in ${from}.patch.yml; edit the preset by hand (see README)`);
@@ -168,20 +195,42 @@ declaration = declaration
   .replace(/^( {8}id: )[a-z0-9-]+$/m, `$1${id}\n        name: Hypercompact (${from})\n        description: The shipped "${from}" coding agent with dsh-hypercompact (deterministic, zero-LLM, byte-budget compaction).`)
   .replace(/^ {8}order: \d+\n/m, '');
 declaration = swapCompactionRow(`${declaration}\n`, `${from}.patch.yml`);
+const patch = `# Preset "${id}": a copy of the shipped "${from}" preset with dsh-hypercompact
+# as the compaction engine. Generated by dsh-hypercompact/scripts/${MARKER}.
+# Only the compaction row was changed. Regenerate with --force after upgrading dsh.
+${declaration}`;
+const manifest = `${JSON.stringify({
+  name: bundleName,
+  version: '1.0.0',
+  private: true,
+  description: `Agent preset "${id}" using dsh-hypercompact (generated by dsh-hypercompact/scripts/${MARKER})`,
+  type: 'module',
+  dsh: { bundle: { patch: './cordis.patch.yml' } },
+}, null, 2)}\n`;
 
-// Append as block-sequence items: a bare `[]` (flow empty list) is dropped.
-const base = withoutBlock(current);
-const lines = base.split('\n');
-const content = lines.filter((line) => line.trim().length > 0 && !line.trimStart().startsWith('#'));
-let head;
-if (content.length === 1 && content[0].trim() === '[]') head = lines.filter((line) => line.trim() !== '[]').join('\n').replace(/\s*$/, '');
-else if (content.every((line) => line.startsWith('-') || line.startsWith(' '))) head = base.replace(/\s*$/, '');
-else fail(`${patchFile} is not a block-style YAML list; add the preset by hand (see README)`);
-const next = `${head ? `${head}\n` : ''}${BEGIN}\n${declaration.replace(/\s*$/, '')}\n${END}\n`;
 if (printOnly) {
-  process.stdout.write(next);
+  console.log(`# ${join(bundleDir, 'package.json')}\n${manifest}\n# ${join(bundleDir, 'cordis.patch.yml')}\n${patch}`);
   process.exit(0);
 }
-writeFileSync(patchFile, next);
-console.log(`declared preset "${id}" in ${patchFile}`);
-console.log(`restart dsh --profile ${profile}, then select "Hypercompact (${from})" in the preset picker`);
+mkdirSync(bundleDir, { recursive: true });
+writeFileSync(join(bundleDir, 'package.json'), manifest);
+writeFileSync(join(bundleDir, 'cordis.patch.yml'), patch);
+console.log(`wrote preset bundle ${bundleName} to ${bundleDir}`);
+
+if (legacyExists) {
+  // dsh 0.1.7+ no longer reads .agent-presets/; the old copy is dead weight.
+  removeTree(legacyDir);
+  console.log(`removed the old 0.1.5 preset folder ${legacyDir} (this dsh no longer reads it)`);
+}
+
+const installCommand = ['plugin', '--profile', profile, 'add', `link:${bundleDir}`];
+if (noInstall) {
+  console.log(`Next: dsh ${installCommand.map((arg) => (/\s/.test(arg) ? JSON.stringify(arg) : arg)).join(' ')}`);
+  process.exit(0);
+}
+if (installedInProfile()) {
+  console.log(`${bundleName} is already installed in profile "${profile}" (linked, so the new files apply on restart)`);
+} else if (!dsh(installCommand)) {
+  fail(`could not install the preset bundle; run: dsh ${installCommand.join(' ')}`);
+}
+console.log('Next: restart dsh, start a NEW session, and pick "Hypercompact" in the preset picker before the first message.');

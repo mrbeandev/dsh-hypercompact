@@ -56,12 +56,24 @@ node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs
 ```
 
 This copies DSH's built-in `standard` preset and changes one row: the
-compaction engine. Your existing presets are not touched. The output says what
-it wrote:
+compaction engine. Your existing presets are not touched. The script detects
+your DSH version and does the right thing for it:
 
-```text
-created preset "hypercompact" at ~/.dsh/.agent-presets/hypercompact
-```
+- **DSH 0.1.7 and 0.2:** it writes a small preset bundle to
+  `~/.dsh/hypercompact/preset-hypercompact/` and installs it into the profile for
+  you (it runs `dsh plugin --profile web add` itself). Output ends with:
+
+  ```text
+  + dsh-hypercompact-preset link:~/.dsh/hypercompact/preset-hypercompact
+  ```
+
+- **DSH 0.1.5:** it writes the preset folder `~/.dsh/.agent-presets/hypercompact/`:
+
+  ```text
+  created preset "hypercompact" at ~/.dsh/.agent-presets/hypercompact
+  ```
+
+Not sure which DSH you have? Run `dsh --version`.
 
 - **Windows:** `node %USERPROFILE%\.dsh\profiles\web\node_modules\dsh-hypercompact\scripts\create-preset.mjs`
 - **Custom `DSH_HOME`:** use that directory instead of `~/.dsh`.
@@ -74,13 +86,16 @@ created preset "hypercompact" at ~/.dsh/.agent-presets/hypercompact
 3. **Before you send the first message**, open the preset picker and choose
    **Hypercompact (standard)**.
 
-To use it for **every** new session instead, make it the default. Add this to
-`~/.dsh/settings.yaml` and restart DSH:
+To use it for **every** new session instead, make it the default:
 
-```yaml
-agent-presets:
-  default: hypercompact
-```
+- **DSH 0.1.7 and 0.2:** in the web UI's preset picker, set **Hypercompact
+  (standard)** as your default preset.
+- **DSH 0.1.5:** add this to `~/.dsh/settings.yaml` and restart DSH:
+
+  ```yaml
+  agent-presets:
+    default: hypercompact
+  ```
 
 ### Check that it is working
 
@@ -103,7 +118,7 @@ also run `/compact` at any time.
 | Session | Uses dsh-hypercompact? |
 |---|---|
 | New session with **Hypercompact (standard)** picked before the first message | **Yes** |
-| Any new session, after you set `agent-presets.default: hypercompact` | **Yes** |
+| Any new session, after you make Hypercompact the default preset | **Yes** |
 | New session on another preset (`standard`, `ptc`, …) | No |
 | **Existing session** (already has messages) | **No.** DSH fixes a session's preset after its first message, so it can't switch compaction engines mid-conversation. |
 
@@ -111,21 +126,34 @@ also run `/compact` at any time.
 mention the old one with `@` (pick it from the list). DSH inserts a size-limited
 snapshot of that session so the agent can continue from it.
 
-### DSH version notes
+### Upgrading DSH
 
-`create-preset.mjs` detects your DSH version:
+After you upgrade DSH (for example 0.1.5 → 0.2), do two things:
 
-| DSH | Where the preset goes |
-|---|---|
-| 0.1.5 (`npm i -g @deepseek-ai/dsh`, the `latest` tag) | the folder `~/.dsh/.agent-presets/hypercompact/`, usable from every profile |
-| 0.1.7 (`next` tag) | a marked block in `~/.dsh/profiles/<profile>/cordis.patch.yml`; pass `--profile <name>` for a profile other than `web` |
+1. **Update the plugin**, since a plugin release only accepts the DSH versions
+   it knows:
 
-`agent-presets.default` in `settings.yaml` is a 0.1.5 setting. On 0.1.7, pick
-the preset in the UI.
+   ```sh
+   dsh plugin --profile web add dsh-hypercompact@latest
+   ```
 
-Script options: `--from ptc` (copy another built-in preset), `--id my-preset`,
-`--profile tui`, `--force` (overwrite), `--print` (preview, write nothing),
-`--remove` (delete the preset it created).
+2. **Regenerate the preset.** It is a copy of DSH's `standard` preset **at the
+   time you created it**, so re-run the script to follow the new version:
+
+   ```sh
+   node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs --force
+   ```
+
+Then restart DSH.
+
+Going from 0.1.5 to 0.1.7 or later, this is required: newer DSH no longer reads
+`~/.dsh/.agent-presets/`, so the old preset silently disappears from the picker.
+The script creates the new-style preset and deletes the old folder it made.
+
+**Script options:** `--from ptc` (copy another built-in preset), `--id my-preset`,
+`--profile tui` (default `web`), `--force` (overwrite / regenerate), `--print`
+(preview, write nothing), `--no-install` (0.1.7+: write the bundle but don't run
+`dsh plugin add`), `--remove` (delete everything the script created).
 
 ### Uninstall
 
@@ -137,9 +165,11 @@ node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs
 dsh plugin --profile web remove dsh-hypercompact
 ```
 
-If you set `agent-presets.default: hypercompact`, remove that line too. Sessions
-that were already compacted stay readable: their checkpoints are ordinary
-compaction checkpoints in the session log.
+`--remove` uninstalls the preset bundle (0.1.7+) or deletes the preset folder
+(0.1.5). If you made Hypercompact your default preset, pick another default (or
+remove `agent-presets.default` from `settings.yaml` on 0.1.5). Sessions that were
+already compacted stay readable: their checkpoints are ordinary compaction
+checkpoints in the session log.
 
 ### Add it to a preset by hand
 
@@ -406,7 +436,7 @@ continues untouched. A failure after `compaction/start` closes the bracket with
   recognizes. Earlier checkpoints from either DSH release, or from
   `compaction-basic`, are recognized when carried forward.
 - Tool results are read and rewritten through one adapter covering both DSH
-  message formats (0.1.5 wrapped `tool-result` blocks and 0.1.7 tool-role
+  message formats (0.1.5 wrapped `tool-result` blocks; 0.1.7 and 0.2 tool-role
   messages).
 
 ## Recall tools
@@ -457,11 +487,11 @@ message content. They are what you need to answer "why did it forget X".
 
 ## Requirements
 
-- DeepSeek Harness `0.1.5-rc.2` or later in the 0.1 series. Tested on
-  `0.1.5-rc.2`, `0.1.5-rc.3` (`latest`) and `0.1.7-rc.2` (`next`), including
-  both tool-result message formats. Other 0.1 releases load with a warning after
-  an API contract check; releases outside the range are refused unless
-  `allowUntestedHarness: true`.
+- DeepSeek Harness `0.1.5-rc.2` up to (not including) `0.3.0`. Tested on
+  `0.1.5-rc.2`, `0.1.5-rc.3`, `0.1.7-rc.2` and `0.2.0-rc.1`, covering both
+  tool-result message formats and both preset models. Other releases in the
+  range load with a warning after an API contract check; releases outside it
+  are refused unless `allowUntestedHarness: true`.
 - Node.js `^22.19.0` or `>=24.0.0` (whatever your DSH runs on).
 - Any profile with an agent-preset roster (the web profile). The headless
   profile has no preset roster; see [Add it to a preset by hand](#add-it-to-a-preset-by-hand).
@@ -497,7 +527,7 @@ than the one on `PATH`.
 | `lib/engine.mjs` | `ctx.compaction` implementation: triggers, transaction, recovery, housekeeping, image offload, stats |
 | `lib/compiler.mjs` | Deterministic checkpoint compiler: protected instructions, pinned and state blocks, budget passes |
 | `lib/select.mjs` | Retention, tool-pairing, turn-boundary and intra-turn range selection; checkpoint budget |
-| `lib/messages.mjs` | Message-shape adapter for DSH 0.1.5 and 0.1.7 |
+| `lib/messages.mjs` | Message-shape adapter for DSH 0.1.5 and 0.1.7 / 0.2 |
 | `lib/surface.mjs` | Incremental per-session surface index and byte cache |
 | `lib/bytes.mjs` | Request-body byte estimation |
 | `lib/images.mjs` | Image offload planning and captions |
@@ -506,7 +536,7 @@ than the one on `PATH`.
 | `lib/stats.mjs` | Content-free per-compaction records |
 | `lib/recall.mjs`, `lib/tools.mjs` | Recall/search over the log, their tool definitions, and the commands |
 | `lib/config.mjs` | Config validation |
-| `scripts/create-preset.mjs` | Create or remove the preset (both preset models) |
+| `scripts/create-preset.mjs` | Create, regenerate or remove the preset (folder preset on 0.1.5, preset bundle on 0.1.7+) |
 | `scripts/measure-session.mjs` | Offline wire-body measurement and dry run |
 | `scripts/check-release.mjs` | Release gate |
 

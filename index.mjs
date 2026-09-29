@@ -35,14 +35,15 @@ export const inject = ['tokenMeter', 'sessions'];
  * are covered: 0.1.5 (wrapped `tool-result` blocks) and 0.1.7 (tool-role
  * messages).
  */
-export const TESTED_DSH_VERSIONS = Object.freeze(['0.1.5-rc.2', '0.1.5-rc.3', '0.1.7-rc.2']);
+export const TESTED_DSH_VERSIONS = Object.freeze(['0.1.5-rc.2', '0.1.5-rc.3', '0.1.7-rc.2', '0.2.0-rc.1']);
 
 /**
- * Versions accepted without `allowUntestedHarness`: the 0.1 series from the
- * first release with the compaction seam. Untested versions in this range
- * load only if the contract check passes, with a one-time warning.
+ * Versions accepted without `allowUntestedHarness`: from the first release
+ * with the compaction seam through the 0.2 series. Untested versions in this
+ * range load only if the API contract check passes, with a one-time warning.
+ * 0.3.0 and its prereleases are refused until tested.
  */
-export const SUPPORTED_DSH_RANGE = Object.freeze({ min: '0.1.5-rc.2', below: '0.2.0' });
+export const SUPPORTED_DSH_RANGE = Object.freeze({ min: '0.1.5-rc.2', below: '0.3.0' });
 
 /** Compare two semver strings, prerelease aware (`0.1.7-rc.2` < `0.1.7`). */
 export function compareVersions(left, right) {
@@ -77,7 +78,7 @@ export function compareVersions(left, right) {
 export function classifyVersion(version) {
   if (version === undefined) return 'unknown';
   if (TESTED_DSH_VERSIONS.includes(version)) return 'tested';
-  // `below` excludes that release's prereleases too (0.2.0-alpha.1 is not in the 0.1 series).
+  // `below` excludes that release's prereleases too (0.3.0-alpha.1 is outside the range).
   const core = String(version).split('-', 1)[0];
   const inRange = compareVersions(version, SUPPORTED_DSH_RANGE.min) >= 0 && compareVersions(core, SUPPORTED_DSH_RANGE.below) < 0;
   return inRange ? 'compatible' : 'unsupported';

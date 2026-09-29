@@ -614,6 +614,10 @@ test('version policy: tested, compatible, and unsupported releases', () => {
   assert.equal(classifyVersion('0.1.8'), 'compatible');
   assert.equal(classifyVersion('0.1.6-alpha.1'), 'compatible');
   assert.equal(classifyVersion('0.1.5-rc.1'), 'unsupported');
-  assert.equal(classifyVersion('0.2.0-alpha.1'), 'unsupported');
+  assert.equal(classifyVersion('0.2.0-rc.1'), 'tested');
+  assert.equal(classifyVersion('0.2.0'), 'compatible');
+  assert.equal(classifyVersion('0.2.5'), 'compatible');
+  assert.equal(classifyVersion('0.3.0-alpha.1'), 'unsupported');
+  assert.equal(classifyVersion('0.3.0'), 'unsupported');
   assert.equal(classifyVersion(undefined), 'unknown');
 });

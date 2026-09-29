@@ -22,7 +22,7 @@ EOF
 echo '[]' > "$DSH_HOME/profiles/hc/cordis.patch.yml"
 
 dsh plugin --profile hc add "link:/absolute/path/to/dsh-hypercompact"
-node scripts/create-preset.mjs --profile hc   # 0.1.5: $DSH_HOME/.agent-presets/; 0.1.7: the hc profile patch
+node scripts/create-preset.mjs --profile hc   # 0.1.5: $DSH_HOME/.agent-presets/; 0.1.7+: installs a preset bundle
 dsh --profile hc --no-open --port 3099
 ```
 
@@ -33,8 +33,8 @@ Copy only the provider/model blocks you need into `$DSH_HOME/settings.yaml`
 To test another DSH release without replacing your global install:
 
 ```bash
-npm install --prefix /tmp/dsh-next @deepseek-ai/dsh@next
-export DSH_ENTRY=/tmp/dsh-next/node_modules/@deepseek-ai/dsh/lib/bin.js
+npm install --prefix /tmp/dsh-old @deepseek-ai/dsh@0.1.5-rc.3   # or @next, @latest, any version
+export DSH_ENTRY=/tmp/dsh-old/node_modules/@deepseek-ai/dsh/lib/bin.js
 npm test
 node "$DSH_ENTRY" --profile hc --no-open --port 3099
 ```
