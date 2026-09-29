@@ -1,7 +1,7 @@
 # Release checklist
 
-`dsh-hypercompact` `0.1.0` is published. `0.2.0` adds DSH 0.2 support and the
-preset-bundle install for DSH 0.1.7 and later; it has not been published yet.
+`dsh-hypercompact` `0.1.0` and `0.2.0` are published. `0.2.1` adds the
+"Supported DSH versions" section to the README; it has not been published yet.
 
 The repository is `https://github.com/mrbeandev/dsh-hypercompact`. The package
 is MIT-licensed. `prepublishOnly` runs `npm run verify`: both test passes and
