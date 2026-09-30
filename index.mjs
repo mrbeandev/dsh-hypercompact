@@ -35,7 +35,7 @@ export const inject = ['tokenMeter', 'sessions'];
  * are covered: 0.1.5 (wrapped `tool-result` blocks) and 0.1.7 (tool-role
  * messages).
  */
-export const TESTED_DSH_VERSIONS = Object.freeze(['0.1.5-rc.2', '0.1.5-rc.3', '0.1.7-rc.2', '0.2.0-rc.1']);
+export const TESTED_DSH_VERSIONS = Object.freeze(['0.1.5-rc.2', '0.1.5-rc.3', '0.1.7-rc.2', '0.2.0-rc.1', '0.2.0-rc.2']);
 
 /**
  * Versions accepted without `allowUntestedHarness`: from the first release

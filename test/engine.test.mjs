@@ -18,6 +18,8 @@ import { createEngineClass, ENGINE_PROVIDER } from '../lib/engine.mjs';
 import { recall } from '../lib/recall.mjs';
 import { buildEvents, toolResultMessage, resultText } from './helpers.mjs';
 import { toolResultsOf, isCheckpointSource } from '../lib/messages.mjs';
+import { resolvePolicy } from '../lib/config.mjs';
+import { requestBytes } from '../lib/select.mjs';
 
 
 const entry = findDsh();
@@ -39,7 +41,7 @@ async function setup(config = {}, eventOptions = {}, overrides = {}) {
   const { Session } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-session')).href);
   const { TokenMeter } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-token-meter')).href);
   const events = buildEvents({ format, ...eventOptions });
-  const session = Session.create('engine-test', events);
+  const session = Session.create('engine-test', events, undefined, undefined, overrides.projections);
   const logs = [];
   const listeners = new Map();
   const provided = [];
@@ -82,6 +84,44 @@ test('engine: registers as the compaction service with the pre-step and recovery
   assert.ok(listeners.has('agent/pre-step'));
   assert.ok(listeners.has('agent/request-error'));
 });
+
+test('engine: an image/offload projection updates byte pricing and survives result trimming', { skip }, async () => {
+  const require = createRequire(entry);
+  let projection;
+  try {
+    ({ imageOffloadProjection: projection } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-compaction-image-offload/projection')).href));
+  } catch {
+    return; // DSH 0.1.5 has no image/offload message projection.
+  }
+  const { Session, session, engine, agent } = await setup(
+    { retainTurns: 1, retainBytes: 0, keepRecentImages: 0, maxRequestBytes: 5_000_000, targetRequestBytes: 1_500_000 },
+    { turns: 3, callsPerTurn: 2, resultChars: 20_000, withImageEvery: 1 },
+    { projections: [projection] },
+  );
+  const firstResult = session.surface.nodes.find((seq) => session.eventAt(seq)?.type === 'tool/result');
+  const before = engine.index(session).view(session);
+  const original = before.nodes.find((node) => node.seq === firstResult);
+  assert.ok(original.bytes > 300_000, 'inline image costs base64 bytes');
+  const generation = session.surface.contentGeneration;
+  session.append('image/offload', { targets: [{ seq: firstResult, imageIndexes: [0] }] });
+  assert.equal(session.surface.replaceGeneration, 0, 'offload did not replace the node');
+  assert.ok(session.surface.contentGeneration > generation, 'content generation changed');
+  const projected = engine.index(session).view(session);
+  const projectedNode = projected.nodes.find((node) => node.seq === firstResult);
+  assert.equal(projectedNode.message.content.find((block) => block.type === 'image')?.offloaded, true);
+  assert.ok(original.bytes - projectedNode.bytes > 300_000, 'cached bytes were recalculated after offload');
+  assert.equal(engine.status(session).images, 5, 'status reports only images still uploaded');
+  const trimmed = engine.housekeep(session, resolvePolicy(engine.config, { provider: 'p', model: 'm' }), requestBytes(projected), 'image projection regression', true);
+  assert.equal(trimmed, true);
+  const rewritten = session.deriveMessages().find((message) => message.id === projectedNode.message.id);
+  assert.ok(rewritten.content.some((block) => block.type === 'image' && block.offloaded === true), 'trimming did not restore the omitted image');
+  revalidateWithProjection(Session, session, projection);
+  void agent;
+});
+
+function revalidateWithProjection(Session, session, projection) {
+  return Session.create('revalidated-offload', [...session.snapshotEvents()], undefined, undefined, [projection]);
+}
 
 test('engine: /compact commits a valid transaction and shrinks the request', { skip }, async () => {
   const { Session, session, engine, agent } = await setup({}, { turns: 10, callsPerTurn: 3, resultChars: 20_000 });
