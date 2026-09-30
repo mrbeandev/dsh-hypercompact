@@ -44,6 +44,8 @@ test('bytes: utf8 and base64 sizing', () => {
   assert.equal(base64Bytes(4), 8);
   const withImage = toolResultMessage('a', [{ type: 'image', attachment: { bytes: 300_000 } }]);
   assert.ok(messageBytes(withImage) > 400_000, 'image priced as inline base64');
+  const offloaded = toolResultMessage('a', [{ type: 'image', attachment: { bytes: 300_000 }, offloaded: true }]);
+  assert.ok(messageBytes(offloaded) < 2_000, 'durably offloaded image is a bounded text placeholder, not uploaded base64');
 });
 
 // ── compiler ────────────────────────────────────────────────────────────────
@@ -449,6 +451,21 @@ test('review S5: image captions come from the following assistant text', () => {
   assert.equal(captionAfter([{ type: 'tool/result' }, { type: 'user/message' }, nodes[1]], 0), undefined);
 });
 
+test('image offload: already omitted images survive rewriting other images', () => {
+  for (const format of ['v1', 'v2']) {
+    const message = toolResultMessage('call', [
+      { type: 'image', attachment: { bytes: 100_000 }, offloaded: true },
+      { type: 'image', attachment: { bytes: 120_000 } },
+    ], { format });
+    const event = { data: { message } };
+    const node = { seq: 9, type: 'tool/result', message };
+    assert.equal(planImageOffload([node], 0, 0).length, 1);
+    const rewritten = offloadedResultMessage(event, 9);
+    assert.equal(resultContent(rewritten)[0].offloaded, true, `${format} keeps the durable omission`);
+    assert.equal(resultContent(rewritten)[1].type, 'text', `${format} offloads only the inline image`);
+  }
+});
+
 test('review S5: image byte cap limits kept images', () => {
   const session = fakeSession(buildEvents({ turns: 3, callsPerTurn: 2, withImageEvery: 1 }));
   const view = new SurfaceIndex().view(session);
@@ -615,9 +632,52 @@ test('version policy: tested, compatible, and unsupported releases', () => {
   assert.equal(classifyVersion('0.1.6-alpha.1'), 'compatible');
   assert.equal(classifyVersion('0.1.5-rc.1'), 'unsupported');
   assert.equal(classifyVersion('0.2.0-rc.1'), 'tested');
+  assert.equal(classifyVersion('0.2.0-rc.2'), 'tested');
   assert.equal(classifyVersion('0.2.0'), 'compatible');
   assert.equal(classifyVersion('0.2.5'), 'compatible');
   assert.equal(classifyVersion('0.3.0-alpha.1'), 'unsupported');
   assert.equal(classifyVersion('0.3.0'), 'unsupported');
   assert.equal(classifyVersion(undefined), 'unknown');
+});
+
+// ── create-preset: stale rows in the profile patch ─────────────────────────
+
+import { cleanProfilePatch } from '../scripts/profile-patch.mjs';
+
+test('create-preset: removes a stale inline declaration and a disabling override, keeps other rows', () => {
+  const profile = [
+    '- id: ui-conversation',
+    '  config:',
+    '    busyEnter: steer',
+    '# >>> dsh-hypercompact preset "hypercompact" (managed by dsh-hypercompact/scripts/create-preset.mjs; remove with --remove)',
+    '- insert:',
+    '    - id: preset-hypercompact',
+    "      name: '@deepseek-ai/dsh-agent-preset'",
+    '      config:',
+    '        id: hypercompact',
+    '        plugins:',
+    '          - id: persona',
+    '- id: better-sidebar',
+    '  config:',
+    '    tabs: true',
+    '- id: preset-hypercompact',
+    '  disabled: true',
+    '',
+    '# <<< dsh-hypercompact preset "hypercompact"',
+    '',
+  ].join('\n');
+  const { text, removed } = cleanProfilePatch(profile, 'hypercompact');
+  assert.equal(removed.length, 3);
+  assert.ok(!text.includes('preset-hypercompact'), 'no preset row is left');
+  assert.ok(!text.includes('dsh-hypercompact preset'), 'no marker is left');
+  assert.ok(text.includes('- id: ui-conversation\n  config:\n    busyEnter: steer'), 'rows before the block are kept');
+  assert.ok(text.includes('- id: better-sidebar\n  config:\n    tabs: true'), 'rows placed inside the markers are kept');
+});
+
+test('create-preset: profile patch cleanup leaves unrelated patches untouched', () => {
+  const untouched = '- id: preset-standard\n  disabled: true\n- id: preset-hypercompact\n  config:\n    id: hypercompact\n';
+  assert.deepEqual(cleanProfilePatch(untouched, 'hypercompact'), { text: untouched, removed: [] }, 'a real override is not a stale disable');
+  const onlyStale = '# Your patch layer.\n- id: preset-hypercompact\n  disabled: true\n';
+  const cleaned = cleanProfilePatch(onlyStale, 'hypercompact');
+  assert.equal(cleaned.text, '# Your patch layer.\n[]\n', 'an emptied patch is still a YAML list');
 });

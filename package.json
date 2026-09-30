@@ -1,6 +1,6 @@
 {
   "name": "dsh-hypercompact",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Deterministic, zero-LLM, byte-budget context compaction for DeepSeek Harness, with byte-exact recall of compacted history.",
   "type": "module",
   "main": "./index.mjs",

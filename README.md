@@ -17,7 +17,7 @@ call. Everything you typed stays word for word, and the agent can restore any
 compacted tool output exactly with the `recall` tool.
 
 **Contents:** [Supported DSH versions](#supported-dsh-versions) · [Installation](#installation) ·
-[Check that it is working](#check-that-it-is-working) ·
+[Preset not in the picker?](#the-preset-does-not-appear-in-the-picker) · [Check that it is working](#check-that-it-is-working) ·
 [Which sessions use it?](#which-sessions-use-it) · [Uninstall](#uninstall) ·
 [Why this plugin exists](#why-this-plugin-exists) · [Configuration](#configuration) ·
 [How it works](#how-it-works) · [Recall tools](#recall-tools) ·
@@ -25,30 +25,34 @@ compacted tool output exactly with the `recall` tool.
 
 ## Supported DSH versions
 
-**Supported range: DSH `0.1.5-rc.2` up to (not including) `0.3.0`**, with
-dsh-hypercompact `0.2.0` or later. Check yours with `dsh --version`.
+**dsh-hypercompact `0.2.3` works with DSH `0.1.5-rc.2` through `0.2.x` (not
+`0.3.0` or later).** Check your installed Harness with `dsh --version`.
 
-| DSH version | npm tag (at the time of this release) | Status | Preset created by `create-preset.mjs` |
+| DSH version | npm tag checked 2026-09-30 | Verified with dsh-hypercompact `0.2.2`+ | Preset created by `create-preset.mjs` |
 |---|---|---|---|
-| `0.2.0-rc.1` | `next` | ✅ Tested | preset bundle, installed with `dsh plugin add` |
-| `0.1.7-rc.2` | `latest` | ✅ Tested | preset bundle, installed with `dsh plugin add` |
+| `0.2.0-rc.2` | `latest` / `next` | ✅ Tested, including durable image-offload projections | preset bundle, installed with `dsh plugin add` |
+| `0.2.0-rc.1` | — | ✅ Tested | preset bundle, installed with `dsh plugin add` |
+| `0.1.7-rc.2` | — | ✅ Tested | preset bundle, installed with `dsh plugin add` |
 | `0.1.5-rc.3` | — | ✅ Tested | folder `~/.dsh/.agent-presets/hypercompact/` |
 | `0.1.5-rc.2` | — | ✅ Tested | folder `~/.dsh/.agent-presets/hypercompact/` |
-| other `0.1.5-rc.2` … `0.2.x` releases | — | ⚠️ Works, untested: loads with a warning after an API check | detected automatically |
+| Other `0.1.5-rc.2` … `0.2.x` releases | — | ⚠️ Not verified: allowed after an API check, with a warning; behavior is not guaranteed | detected automatically |
 | `0.1.5-rc.1` and older | — | ❌ Not supported: no compaction API | — |
 | `0.3.0` and newer | — | ❌ Refused until tested (override: `allowUntestedHarness: true`) | — |
 
 **Which dsh-hypercompact version do I need?**
 
-| dsh-hypercompact | Works with DSH |
-|---|---|
-| `0.2.0` and later | `0.1.5-rc.2` … `<0.3.0` (0.1.5, 0.1.7, 0.2) |
-| `0.1.0` | `0.1.5-rc.2` … `<0.2.0` (0.1.5, 0.1.7). **Refuses to load on DSH 0.2.** |
+| dsh-hypercompact | Harness range allowed by its version gate | Latest Harness image-offload behavior |
+|---|---|---|
+| `0.2.3` (recommended) | `>=0.1.5-rc.2 <0.3.0`; tested on the five versions above | Same engine as 0.2.2; `create-preset.mjs` also repairs stale preset rows that hid the preset |
+| `0.2.2` | `>=0.1.5-rc.2 <0.3.0` | Handles DSH 0.2 content-only image offload |
+| `0.2.0`–`0.2.1` | `>=0.1.5-rc.2 <0.3.0` | Older image handling; update for the DSH 0.2.0-rc.2 image-offload fix |
+| `0.1.0` | `>=0.1.5-rc.2 <0.2.0` | **Refuses to load on DSH 0.2** |
 
-"Refused" means the plugin logs a clear error at startup and does not load; it
-never half-loads or touches your sessions. The engine works the same on every
-supported version; only the way a preset is installed differs (see Step 2
-below). After upgrading DSH, see [Upgrading DSH](#upgrading-dsh).
+"Refused" means the plugin logs a clear error at startup and does not load;
+it does not attempt compaction. Releases in the allowed range have different
+preset installation models (Step 2 below), and an API check alone does not
+establish full runtime compatibility. After upgrading DSH, see
+[Upgrading DSH](#upgrading-dsh).
 
 ## Installation
 
@@ -124,6 +128,26 @@ To use it for **every** new session instead, make it the default:
   agent-presets:
     default: hypercompact
   ```
+
+### The preset does not appear in the picker
+
+On DSH 0.1.7 and later, your profile's own `~/.dsh/profiles/web/cordis.patch.yml`
+applies **after** every bundle. If it still contains a `preset-hypercompact`
+row, typically `disabled: true` left behind when the preset was disabled or
+uninstalled, or an inline declaration from an older version of the script,
+that row hides the preset.
+
+Upgrade to dsh-hypercompact `0.2.3` or later and run the script again with
+`--force`. It removes those stale rows, keeps the previous file as
+`cordis.patch.yml.bak-hypercompact`, and prints what it removed:
+
+```sh
+dsh plugin --profile web add dsh-hypercompact@latest
+node ~/.dsh/profiles/web/node_modules/dsh-hypercompact/scripts/create-preset.mjs --force
+```
+
+Then restart DSH. To fix it by hand instead, delete every `preset-hypercompact`
+row from that file (the preset bundle declares the preset itself).
 
 ### Check that it is working
 
@@ -466,6 +490,11 @@ continues untouched. A failure after `compaction/start` closes the bracket with
 - Tool results are read and rewritten through one adapter covering both DSH
   message formats (0.1.5 wrapped `tool-result` blocks; 0.1.7 and 0.2 tool-role
   messages).
+- In DSH 0.2, a durable `image/offload` event can mark an image omitted without
+  replacing its surface node. Hypercompact invalidates its byte cache when the
+  message content generation changes, prices an already-offloaded image as a
+  conservative text placeholder rather than base64, and preserves the omission
+  through later tool-result rewrites.
 
 ## Recall tools
 

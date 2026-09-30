@@ -29,6 +29,7 @@ import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createRequire } from 'node:module';
 import { findDsh } from './find-dsh.mjs';
+import { cleanProfilePatch } from './profile-patch.mjs';
 
 const args = process.argv.slice(2);
 const option = (key, fallback) => {
@@ -167,6 +168,28 @@ function installedInProfile() {
   }
 }
 
+/**
+ * Remove stale `preset-<id>` rows from the profile's own patch layer. That
+ * layer applies after every bundle, so a leftover `disabled: true` override
+ * (or an old inline declaration) hides the preset this script installs.
+ * The original file is kept next to it as `cordis.patch.yml.bak-hypercompact`.
+ */
+function cleanProfile({ dryRun }) {
+  const patchFile = join(profileDir, 'cordis.patch.yml');
+  if (!existsSync(patchFile)) return;
+  const original = readFileSync(patchFile, 'utf8');
+  const { text, removed } = cleanProfilePatch(original, id);
+  if (removed.length === 0) return;
+  if (dryRun) {
+    for (const item of removed) console.log(`would remove from ${patchFile}: ${item}`);
+    return;
+  }
+  writeFileSync(`${patchFile}.bak-hypercompact`, original);
+  writeFileSync(patchFile, text);
+  for (const item of removed) console.log(`removed from ${patchFile}: ${item}`);
+  console.log(`(previous file saved as ${patchFile}.bak-hypercompact)`);
+}
+
 if (remove) {
   const installed = installedInProfile();
   if (!installed && !existsSync(bundleDir) && !legacyExists) fail(`nothing to remove: no ${bundleName} in profile "${profile}", no ${bundleDir}`);
@@ -177,6 +200,7 @@ if (remove) {
     process.exit(0);
   }
   if (installed && !dsh(['plugin', '--profile', profile, 'remove', bundleName])) fail(`could not remove ${bundleName}; run: dsh plugin --profile ${profile} remove ${bundleName}`);
+  cleanProfile({ dryRun: false });
   if (existsSync(bundleDir)) removeTree(bundleDir);
   if (legacyExists) removeTree(legacyDir);
   console.log(`removed preset "${id}" (bundle ${bundleName}) from profile "${profile}"`);
@@ -210,8 +234,10 @@ const manifest = `${JSON.stringify({
 
 if (printOnly) {
   console.log(`# ${join(bundleDir, 'package.json')}\n${manifest}\n# ${join(bundleDir, 'cordis.patch.yml')}\n${patch}`);
+  cleanProfile({ dryRun: true });
   process.exit(0);
 }
+cleanProfile({ dryRun: false });
 mkdirSync(bundleDir, { recursive: true });
 writeFileSync(join(bundleDir, 'package.json'), manifest);
 writeFileSync(join(bundleDir, 'cordis.patch.yml'), patch);

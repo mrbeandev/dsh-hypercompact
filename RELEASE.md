@@ -1,7 +1,10 @@
 # Release checklist
 
-`dsh-hypercompact` `0.1.0` and `0.2.0` are published. `0.2.1` adds the
-"Supported DSH versions" section to the README; it has not been published yet.
+`dsh-hypercompact` `0.2.2` is published. Unpublished `0.2.3` makes
+`create-preset.mjs` remove stale `preset-<id>` rows from the profile patch that
+hid the preset on DSH 0.1.7+. `0.2.2` added verified
+DeepSeek Harness `0.2.0-rc.2` compatibility and preserves its durable image
+omissions when Hypercompact re-prices or rewrites tool results.
 
 The repository is `https://github.com/mrbeandev/dsh-hypercompact`. The package
 is MIT-licensed. `prepublishOnly` runs `npm run verify`: both test passes and
